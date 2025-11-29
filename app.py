@@ -1,9 +1,9 @@
 import streamlit as st
 import numpy as np
 
-# --------------------------
-# GF(2^8) helpers (AES poly)
-# --------------------------
+# ======================================================
+# GF(2^8) Helpers
+# ======================================================
 AES_MODULUS = 0x11B
 C_AES = 0x63
 
@@ -27,22 +27,40 @@ def gf_inverse(val):
             return i
     return 0
 
-# --------------------------
-# K-Matrices (only S-box44 fixed for now)
-# --------------------------
+# ======================================================
+# K-Matrices dari Paper / kode lo
+# ======================================================
 K_MATRICES = {
+    "4": [
+        0b00000111, 0b10000011, 0b11000001, 0b11100000,
+        0b01110000, 0b00111000, 0b00011100, 0b00001111
+    ],
+
     "44": [
-        0b01110000,
-        0b01110101,
-        0b00111000,
-        0b10111010,
-        0b00011100,
-        0b01011101,
-        0b00001111,
-        0b10101110
+        0b01110000, 0b01110101, 0b00111000, 0b10111010,
+        0b00011100, 0b01011101, 0b00001111, 0b10101110
+    ],
+
+    "81": [
+        0b10100001, 0b11010000, 0b01101000, 0b00110100,
+        0b00011010, 0b00001101, 0b10000110, 0b01000011
+    ],
+
+    "111": [
+        0b11011100, 0b01101110, 0b00110111, 0b10011011,
+        0b11001101, 0b11100160 if False else 0b11100110,
+        0b01110011, 0b10111001
+    ],
+
+    "128": [
+        0b11111110, 0b01111111, 0b10111111, 0b11011111,
+        0b11101111, 0b11110111, 0b11111011, 0b11111101
     ]
 }
 
+# ======================================================
+# S-box Generator
+# ======================================================
 def affine_transform(matrix_rows, byte_val, c=C_AES):
     res = 0
     for i in range(8):
@@ -51,24 +69,23 @@ def affine_transform(matrix_rows, byte_val, c=C_AES):
         res |= (parity << i)
     return res ^ c
 
-def generate_sbox_from_K(k_name):
-    K = K_MATRICES[k_name]
-    sbox = [0]*256
+def generate_sbox(k_id):
+    K = K_MATRICES[k_id]
+    sbox = []
     for x in range(256):
         inv = gf_inverse(x)
-        sbox[x] = affine_transform(K, inv)
+        sbox.append(affine_transform(K, inv))
     return sbox
 
 def inverse_sbox(sbox):
     inv = [0]*256
-    for i,v in enumerate(sbox):
+    for i, v in enumerate(sbox):
         inv[v] = i
     return inv
 
-
-# --------------------------
-# Crypto ops
-# --------------------------
+# ======================================================
+# Crypto Ops
+# ======================================================
 def encrypt_bytes(b, sbox):
     return bytes([sbox[x] for x in b])
 
@@ -76,76 +93,71 @@ def decrypt_bytes(b, inv_sbox):
     return bytes([inv_sbox[x] for x in b])
 
 
-# --------------------------
-# Streamlit UI
-# --------------------------
-st.set_page_config(
-    page_title="S-Box 44 Crypto Demo",
-    layout="wide",
-)
+# ======================================================
+# STREAMLIT UI
+# ======================================================
+st.set_page_config(page_title="S-Box Crypto Demo", layout="wide")
 
-# styling
+# Styling
 st.markdown("""
 <style>
-    .title {
-        font-size: 32px;
-        font-weight: 700;
-        color: #4A90E2;
-    }
-    .subtitle {
-        font-size: 18px;
-        color: #555;
-    }
+    .title { font-size: 32px; font-weight: 700; color: #4A90E2; }
+    .subtitle { color: #555; font-size: 17px; margin-bottom: 20px; }
     .cipherbox {
-        padding: 10px;
-        background: #f7faff;
-        border-radius: 8px;
-        border: 1px solid #d0dff7;
-        font-weight: 600;
-        letter-spacing: 1px;
+        padding: 10px; background: #f3f7ff;
+        border-radius: 8px; border: 1px solid #c9d8ff;
+        font-weight: 600; letter-spacing: 1px;
     }
     .sbox-table td {
-        text-align: center !important;
-        padding: 6px 10px !important;
-        border: 1px solid #ddd;
+        text-align:center !important;
+        padding:6px 10px !important;
+        border:1px solid #ddd;
+        font-size: 13px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='title'>S-Box 44 Substitution Cipher Demo</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Kriptografi – Generate, Encrypt, Decrypt</div><br>", unsafe_allow_html=True)
+# Header
+st.markdown("<div class='title'>S-Box Substitution Cipher Demo</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitle'>Pilih S-box · Enkripsi · Dekripsi · Lihat S-box 16×16</div>", unsafe_allow_html=True)
 
-sbox = generate_sbox_from_K("44")
+
+# ======================================================
+# PILIHAN S-BOX
+# ======================================================
+sbox_id = st.selectbox("Pilih S-Box", ["4", "44", "81", "111", "128"], index=1)
+
+sbox = generate_sbox(sbox_id)
 inv_sbox = inverse_sbox(sbox)
 
-# ===========================================================
-# INPUT
-# ===========================================================
+st.markdown(f"### 🔧 Menggunakan S-Box {sbox_id}")
+
+
+# ======================================================
+# INPUT AREA
+# ======================================================
 st.markdown("### 🔤 Input Teks")
-text = st.text_area("Masukkan teks yang ingin dienkripsi:", "Hello, Alamsyah!", height=120)
+text = st.text_area("Tulis teks di sini:", "Hello, Kriptografi!", height=120)
 
 colE, colD = st.columns(2)
 
-# ===========================================================
-# ENCRYPT
-# ===========================================================
+# Encrypt
 if colE.button("🔐 Encrypt"):
     enc = encrypt_bytes(text.encode("utf-8"), sbox)
     st.session_state["enc"] = enc
 
-# ===========================================================
-# DECRYPT
-# ===========================================================
+# Decrypt
 if colD.button("🔓 Decrypt"):
     if "enc" in st.session_state:
         dec = decrypt_bytes(st.session_state["enc"], inv_sbox)
         st.session_state["dec"] = dec.decode("utf-8", errors="replace")
     else:
-        st.warning("Belum ada ciphertext!")
+        st.warning("Belum ada ciphertext untuk didecrypt.")
 
-# ===========================================================
+
+# ======================================================
 # OUTPUT
-# ===========================================================
+# ======================================================
 if "enc" in st.session_state:
     st.markdown("### 🔒 Ciphertext (Hex)")
     hex_out = " ".join(f"{b:02X}" for b in st.session_state["enc"])
@@ -155,17 +167,17 @@ if "dec" in st.session_state:
     st.markdown("### 🔁 Hasil Decrypt")
     st.success(st.session_state["dec"])
 
-# ===========================================================
-# S-BOX TABLE (16×16)
-# ===========================================================
-st.markdown("### 🔢 S-Box 44 Mapping (16×16)")
+
+# ======================================================
+# S-BOX TABLE 16×16
+# ======================================================
+st.markdown("### 🔢 S-Box Mapping (16 × 16)")
 
 table_html = "<table class='sbox-table'>"
 for r in range(16):
     table_html += "<tr>"
     for c in range(16):
-        val = sbox[r*16 + c]
-        table_html += f"<td>{val:02X}</td>"
+        table_html += f"<td>{sbox[r*16 + c]:02X}</td>"
     table_html += "</tr>"
 table_html += "</table>"
 
