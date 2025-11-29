@@ -1,238 +1,213 @@
 import streamlit as st
+import pandas as pd
 import numpy as np
 
-# ============================
-# GF(2^8) helpers
-# ============================
-AES_MODULUS = 0x11B
-C_AES = 0x63
+# ==========================================
+# PART 1: CONSTANTS & MATH LOGIC
+# ==========================================
 
+# 1. Constants from Paper
+AES_MODULUS = 0x11B  # Irreducible polynomial x^8 + x^4 + x^3 + x + 1
+C_AES = 0x63         # Constant (Decimal 99)
+
+# 2. Matrix Definitions
+# These define the bit transformations for each S-box variant.
+K_MATRICES = {
+    "K-4": [
+        0b00000111, 0b10000011, 0b11000001, 0b11100000,
+        0b01110000, 0b00111000, 0b00011100, 0b00001111
+    ],
+    "K-44 (Proposed Best)": [
+        0b01010111, 0b10101011, 0b11010101, 0b11101010,
+        0b01110101, 0b10111010, 0b01011101, 0b10101110
+    ],
+    "K-81": [
+        0b10100001, 0b11010000, 0b01101000, 0b00110100,
+        0b00011010, 0b00001101, 0b10000110, 0b01000011
+    ],
+    "K-111": [
+        0b11011100, 0b01101110, 0b00110111, 0b10011011,
+        0b11001101, 0b11100110, 0b01110011, 0b10111001
+    ],
+    "K-128": [
+        0b11111110, 0b01111111, 0b10111111, 0b11011111,
+        0b11101111, 0b11110111, 0b11111011, 0b11111101
+    ]
+}
+
+@st.cache_data
 def gf_multiply(a, b):
+    """Galois Field multiplication modulo 0x11B"""
     p = 0
-    for _ in range(8):
-        if b & 1:
-            p ^= a
-        hi = a & 0x80
-        a = (a << 1) & 0x1FF
-        if hi:
-            a ^= AES_MODULUS
+    for i in range(8):
+        if b & 1: p ^= a
+        hi_bit_set = a & 0x80
+        a <<= 1
+        if hi_bit_set: a ^= AES_MODULUS
         b >>= 1
-    return p & 0xFF
+    return p % 256
 
+@st.cache_data
 def gf_inverse(val):
-    if val == 0:
-        return 0
+    """Finds multiplicative inverse in GF(2^8)"""
+    if val == 0: return 0
     for i in range(1, 256):
         if gf_multiply(val, i) == 1:
             return i
     return 0
 
-# ============================
-# K-MATRICES
-# ============================
-K_MATRICES = {
-    "4": [
-        0b00000111,
-        0b10000011,
-        0b11000001,
-        0b11100000,
-        0b01110000,
-        0b00111000,
-        0b00011100,
-        0b00001111
-    ],
-    "44": [
-        0b01010111,
-        0b10101011,
-        0b11010101,
-        0b11101010,
-        0b01110101,
-        0b10111010,
-        0b01011101,
-        0b10101110
-    ],
-    "81": [
-        0b10100001,
-        0b11010000,
-        0b01101000,
-        0b00110100,
-        0b00011010,
-        0b00001101,
-        0b10000110,
-        0b01000011
-    ],
-    "111": [
-        0b11011100,
-        0b01101110,
-        0b00110111,
-        0b10011011,
-        0b11001101,
-        0b11100110,
-        0b01110011,
-        0b10111001
-    ],
-    "128": [
-        0b11111110,
-        0b01111111,
-        0b10111111,
-        0b11011111,
-        0b11101111,
-        0b11110111,
-        0b11111011,
-        0b11111101
-    ]
-}
+@st.cache_data
+def affine_transform(byte_val, matrix):
+    """
+    Applies Affine Transformation matches the paper's specific vector math.
+    Y = X * M + C
+    """
+    result = 0
+    # Loop through bits of the input byte (MSB to LSB)
+    for bit_pos in range(8):
+        mask = 1 << (7 - bit_pos)
+        if byte_val & mask:
+            result ^= matrix[bit_pos]
+            
+    return result ^ C_AES
 
-
-# ============================
-# S-box generator
-# ============================
-def affine_transform(matrix_rows, byte_val, c=C_AES):
-    res = 0
-    for i in range(8):
-        parity = bin(matrix_rows[i] & byte_val).count('1') % 2
-        res |= (parity << i)
-    return res ^ c
-
-def generate_sbox(k_id):
-    K = K_MATRICES[k_id]
+@st.cache_data
+def generate_sbox_data(matrix_key):
+    """Generates the S-box and Inverse S-box based on the matrix key."""
+    # Handle the key name to get the raw list
+    matrix = K_MATRICES[matrix_key]
+    
     sbox = [0] * 256
-    for x in range(256):
-        inv = gf_inverse(x)
-        sbox[x] = affine_transform(K, inv)
-    return sbox
+    for i in range(256):
+        inv = gf_inverse(i)
+        sbox[i] = affine_transform(inv, matrix)
+        
+    inv_sbox = [0] * 256
+    for i in range(256):
+        val = sbox[i]
+        inv_sbox[val] = i
+        
+    return sbox, inv_sbox
 
-def inverse_sbox(sbox):
-    inv = [0] * 256
-    for i, v in enumerate(sbox):
-        inv[v] = i
-    return inv
+# ==========================================
+# PART 2: STREAMLIT UI
+# ==========================================
 
-# ============================
-# Crypto ops
-# ============================
-def encrypt_bytes(b, sbox):
-    return bytes([sbox[x] for x in b])
+st.set_page_config(page_title="AES S-Box Explorer", layout="wide")
 
-def decrypt_bytes(b, inv_sbox):
-    return bytes([inv_sbox[x] for x in b])
-
-# ============================
-# S-BOX STRENGTH TESTS
-# ============================
-def test_bijective(sbox):
-    return len(set(sbox)) == 256
-
-def avalanche_score(sbox):
-    total = 0
-    count = 0
-    for x in range(256):
-        for bit in range(8):
-            flipped = x ^ (1 << bit)
-            diff = sbox[x] ^ sbox[flipped]
-            total += bin(diff).count("1")
-            count += 8
-    return total / count
-
-def differential_uniformity(sbox):
-    du = 256
-    for a in range(1, 256):
-        count = {}
-        for x in range(256):
-            y = sbox[x] ^ sbox[x ^ a]
-            count[y] = count.get(y, 0) + 1
-        du = min(du, max(count.values()))
-    return du
-
-def nonlinearity(sbox):
-    nl = []
-    for bit in range(8):
-        f = np.array([(sbox[x] >> bit) & 1 for x in range(256)], dtype=int)
-        walsh = np.zeros(256)
-        for w in range(256):
-            walsh[w] = sum([(-1)**(f[x] ^ (bin(x & w).count("1") % 2)) for x in range(256)])
-        nl.append((256 - max(abs(walsh))) // 2)
-    return min(nl)
-
-# ============================
-# Streamlit UI
-# ============================
-st.set_page_config(page_title="S-Box Substitution Demo", layout="wide")
-
+st.title("🔐 AES S-Box Modification Explorer")
 st.markdown("""
-<style>
-.title { font-size:28px; font-weight:700; color:#2B6CB0; }
-.subtitle { color:#555; margin-bottom:8px; }
-.cipherbox { padding:10px; background:#f3f7ff; border-radius:8px; border:1px solid #cfe0ff; font-family:monospace; }
-.sbox-table td { text-align:center !important; padding:6px 8px !important; border:1px solid #eee; font-family:monospace; }
-</style>
-""", unsafe_allow_html=True)
+This application generates Cryptographic Substitution Boxes (S-Boxes) based on the paper:
+*"AES S-box modification uses affine matrices exploration for increased S-box strength"* by Alamsyah et al.
+""")
 
-st.markdown("<div class='title'>S-Box Substitution Cipher</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Pilih S-Box, enkripsi teks, dan uji kekuatannya</div>", unsafe_allow_html=True)
+# --- Sidebar ---
+st.sidebar.header("Configuration")
+selected_matrix_name = st.sidebar.selectbox(
+    "Select Affine Matrix (K-n)",
+    options=list(K_MATRICES.keys()),
+    index=1  # Default to K-44
+)
 
-# ============================
-# PILIHAN S-BOX
-# ============================
-sbox_id = st.selectbox("Pilih S-box", ["4", "44", "81", "111", "128"], index=1)
-sbox = generate_sbox(sbox_id)
-inv_sbox = inverse_sbox(sbox)
+# Generate S-box based on selection
+sbox, inv_sbox = generate_sbox_data(selected_matrix_name)
+short_name = selected_matrix_name.split()[0] # e.g., "K-44"
 
-st.markdown(f"**S-box terpilih: {sbox_id}**")
+st.sidebar.success(f"Generated S-Box using {short_name}")
 
-# ============================
-# ENCRYPT / DECRYPT
-# ============================
-st.markdown("### Input Teks")
-text = st.text_area("Masukkan teks:", "Hello, Alamsyah!", height=120)
+# --- Main Content ---
+tab1, tab2, tab3 = st.tabs(["📊 S-Box Visualization", "🔒 Encrypt", "🔓 Decrypt"])
 
-colE, colD = st.columns([1, 1])
+with tab1:
+    st.header(f"S-Box Table: {short_name}")
+    
+    col_dec, col_hex = st.columns(2)
+    
+    with col_dec:
+        st.subheader("Decimal Format")
+        st.caption("Matches the paper's table style")
+        # Create 16x16 DataFrame for Decimal
+        df_dec = pd.DataFrame(
+            np.array(sbox).reshape(16, 16),
+            columns=[f"{i}" for i in range(16)],
+            index=[f"{i}" for i in range(16)]
+        )
+        st.dataframe(df_dec, height=600)
 
-with colE:
-    if st.button("🔐 Encrypt"):
-        enc = encrypt_bytes(text.encode("utf-8"), sbox)
-        st.session_state["enc"] = enc
+    with col_hex:
+        st.subheader("Hexadecimal Format")
+        st.caption("Standard cryptographic notation")
+        # Create 16x16 DataFrame for Hex
+        hex_data = np.array([f"{x:02X}" for x in sbox]).reshape(16, 16)
+        df_hex = pd.DataFrame(
+            hex_data,
+            columns=[f"{i:02X}" for i in range(16)],
+            index=[f"{i:01X}0" for i in range(16)]
+        )
+        st.dataframe(df_hex, height=600)
 
-with colD:
-    if st.button("🔓 Decrypt"):
-        if "enc" not in st.session_state:
-            st.warning("Klik Encrypt dulu.")
-        else:
-            dec = decrypt_bytes(st.session_state["enc"], inv_sbox)
+with tab2:
+    st.header("Encryption (Substitution)")
+    text_input = st.text_input("Enter text to encrypt:", value="Alamsyah S-box")
+    
+    if text_input:
+        # Encrypt
+        input_bytes = text_input.encode('utf-8')
+        encrypted_ints = [sbox[b] for b in input_bytes]
+        
+        st.subheader("Results")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.info("*Decimal Output:*")
+            st.code(" ".join(map(str, encrypted_ints)))
+            
+        with c2:
+            st.warning("*Hex Output:*")
+            hex_output = " ".join([f"{x:02X}" for x in encrypted_ints])
+            st.code(hex_output)
+            
+        st.markdown("---")
+        st.markdown("*Detailed Breakdown:*")
+        breakdown_data = {
+            "Char": [char for char in text_input],
+            "Original (Dec)": [b for b in input_bytes],
+            "Substituted (Dec)": encrypted_ints,
+            "Substituted (Hex)": [f"{x:02X}" for x in encrypted_ints]
+        }
+        st.dataframe(pd.DataFrame(breakdown_data))
+
+with tab3:
+    st.header("Decryption (Inverse Substitution)")
+    st.markdown("Enter numbers separated by spaces or commas. You can mix Decimal (e.g. 99) and Hex (e.g. 63 or 0x63).")
+    
+    decrypt_input = st.text_area("Input Ciphertext:", height=100)
+    
+    if st.button("Decrypt"):
+        if decrypt_input:
             try:
-                st.session_state["dec_text"] = dec.decode("utf-8")
-            except:
-                st.session_state["dec_text"] = dec.decode("latin-1", errors="replace")
-
-if "enc" in st.session_state:
-    st.markdown("### Ciphertext (Hex)")
-    hex_out = " ".join(f"{b:02X}" for b in st.session_state["enc"])
-    st.markdown(f"<div class='cipherbox'>{hex_out}</div>", unsafe_allow_html=True)
-
-if "dec_text" in st.session_state:
-    st.markdown("### Hasil Decrypt")
-    st.success(st.session_state["dec_text"])
-
-# ============================
-# UJI S-BOX
-# ============================
-st.markdown("### 🔍 Uji Kekuatan S-Box")
-
-if st.button("Test S-Box Strength"):
-    st.write("**Bijective:**", "✔️ Ya" if test_bijective(sbox) else "❌ Tidak")
-    st.write(f"**Avalanche Effect:** {avalanche_score(sbox)*100:.2f}% (ideal 50%)")
-    st.write(f"**Differential Uniformity:** {differential_uniformity(sbox)} (AES = 4)")
-    st.write(f"**Nonlinearity:** {nonlinearity(sbox)} (AES = 112)")
-
-# ============================
-# TABEL S-BOX
-# ============================
-st.markdown("### S-Box Mapping (16×16)")
-table_html = "<table class='sbox-table'>"
-for r in range(16):
-    table_html += "<tr>"
-    for c in range(16):
-        table_html += f"<td>{sbox[r*16 + c]:02X}</td>"
-    table_html += "</tr>"
-table_html += "</table>"
-st.markdown(table_html, unsafe_allow_html=True)
+                # Cleaning and Parsing Logic
+                raw_tokens = decrypt_input.replace(',', ' ').split()
+                parsed_ints = []
+                
+                for token in raw_tokens:
+                    token = token.strip()
+                    if not token: continue
+                    
+                    # Auto-detect Hex
+                    if token.lower().startswith("0x") or any(c in "abcdefABCDEF" for c in token):
+                        parsed_ints.append(int(token, 16))
+                    else:
+                        parsed_ints.append(int(token))
+                
+                # Decrypt using Inverse S-box
+                decrypted_bytes = bytes([inv_sbox[val] for val in parsed_ints])
+                decrypted_text = decrypted_bytes.decode('utf-8', errors='replace')
+                
+                st.success("Decryption Successful!")
+                st.subheader(f"Result: {decrypted_text}")
+                
+            except ValueError:
+                st.error("Error parsing input. Please ensure all values are valid numbers or hex codes.")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
