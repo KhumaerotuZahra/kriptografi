@@ -28,7 +28,7 @@ def gf_inverse(val):
     return 0
 
 # ============================
-# K-Matrices
+# K-MATRICES
 # ============================
 K_MATRICES = {
     "4": [
@@ -44,7 +44,7 @@ K_MATRICES = {
         0b00011010, 0b00001101, 0b10000110, 0b01000011
     ],
     "111": [
-        0b11011100, 0b01101110, 0b00110177, 0b10011011,
+        0b11011100, 0b01101110, 0b00110111, 0b10011011,
         0b11001101, 0b11100110, 0b01110011, 0b10111001
     ],
     "128": [
@@ -59,8 +59,7 @@ K_MATRICES = {
 def affine_transform(matrix_rows, byte_val, c=C_AES):
     res = 0
     for i in range(8):
-        row = matrix_rows[i]
-        parity = bin(row & byte_val).count('1') % 2
+        parity = bin(matrix_rows[i] & byte_val).count('1') % 2
         res |= (parity << i)
     return res ^ c
 
@@ -88,10 +87,8 @@ def decrypt_bytes(b, inv_sbox):
     return bytes([inv_sbox[x] for x in b])
 
 # ============================
-# --- ADDED ---
 # S-BOX STRENGTH TESTS
 # ============================
-
 def test_bijective(sbox):
     return len(set(sbox)) == 256
 
@@ -104,7 +101,7 @@ def avalanche_score(sbox):
             diff = sbox[x] ^ sbox[flipped]
             total += bin(diff).count("1")
             count += 8
-    return total / count  # ideal ≈ 0.5
+    return total / count
 
 def differential_uniformity(sbox):
     du = 256
@@ -143,32 +140,32 @@ st.markdown("""
 st.markdown("<div class='title'>S-Box Substitution Cipher</div>", unsafe_allow_html=True)
 st.markdown("<div class='subtitle'>Pilih S-Box, enkripsi teks, dan uji kekuatannya</div>", unsafe_allow_html=True)
 
+# ============================
+# PILIHAN S-BOX
+# ============================
 sbox_id = st.selectbox("Pilih S-box", ["4", "44", "81", "111", "128"], index=1)
 sbox = generate_sbox(sbox_id)
 inv_sbox = inverse_sbox(sbox)
 
-st.markdown(f"*S-box terpilih:* {sbox_id}")
+st.markdown(f"**S-box terpilih: {sbox_id}**")
 
 # ============================
-# Encryption / Decryption
+# ENCRYPT / DECRYPT
 # ============================
 st.markdown("### Input Teks")
-text = st.text_area("Masukkan teks yang mau dienkripsi:", "Hello, Alamsyah!", height=120)
+text = st.text_area("Masukkan teks:", "Hello, Alamsyah!", height=120)
 
 colE, colD = st.columns([1, 1])
 
 with colE:
     if st.button("🔐 Encrypt"):
-        try:
-            enc = encrypt_bytes(text.encode("utf-8"), sbox)
-            st.session_state["enc"] = enc
-        except Exception as e:
-            st.error(f"Encrypt error: {e}")
+        enc = encrypt_bytes(text.encode("utf-8"), sbox)
+        st.session_state["enc"] = enc
 
 with colD:
     if st.button("🔓 Decrypt"):
         if "enc" not in st.session_state:
-            st.warning("Belum ada ciphertext (klik Encrypt dulu).")
+            st.warning("Klik Encrypt dulu.")
         else:
             dec = decrypt_bytes(st.session_state["enc"], inv_sbox)
             try:
@@ -186,22 +183,18 @@ if "dec_text" in st.session_state:
     st.success(st.session_state["dec_text"])
 
 # ============================
-# --- ADDED ---
-# TEST BUTTON
+# UJI S-BOX
 # ============================
 st.markdown("### 🔍 Uji Kekuatan S-Box")
 
 if st.button("Test S-Box Strength"):
     st.write("**Bijective:**", "✔️ Ya" if test_bijective(sbox) else "❌ Tidak")
-    av = avalanche_score(sbox)
-    st.write(f"**Avalanche Effect:** {av*100:.2f}% (ideal 50%)")
-    du = differential_uniformity(sbox)
-    st.write(f"**Differential Uniformity:** {du} (AES = 4)")
-    nl = nonlinearity(sbox)
-    st.write(f"**Nonlinearity:** {nl} (AES = 112)")
+    st.write(f"**Avalanche Effect:** {avalanche_score(sbox)*100:.2f}% (ideal 50%)")
+    st.write(f"**Differential Uniformity:** {differential_uniformity(sbox)} (AES = 4)")
+    st.write(f"**Nonlinearity:** {nonlinearity(sbox)} (AES = 112)")
 
 # ============================
-# S-BOX TABLE
+# TABEL S-BOX
 # ============================
 st.markdown("### S-Box Mapping (16×16)")
 table_html = "<table class='sbox-table'>"
