@@ -97,8 +97,8 @@ st.set_page_config(page_title="AES S-Box Explorer", layout="wide")
 
 st.title("🔐 AES S-Box Modification Explorer")
 st.markdown("""
-This application generates Cryptographic Substitution Boxes (S-Boxes) based on the paper:
-*"AES S-box modification uses affine matrices exploration for increased S-box strength"* by Alamsyah et al.
+Aplikasi ini menghasilkan Kotak Substitusi Kriptografi (S-Box) berdasarkan makalah:
+*"Modifikasi S-Box AES menggunakan eksplorasi matriks afin untuk meningkatkan kekuatan S-Box"* oleh Alamsyah dkk.
 """)
 
 # --- Sidebar ---
