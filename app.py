@@ -1,4 +1,5 @@
 import streamlit as st
+import numpy as np
 
 # ============================
 # GF(2^8) helpers
@@ -12,7 +13,7 @@ def gf_multiply(a, b):
         if b & 1:
             p ^= a
         hi = a & 0x80
-        a = (a << 1) & 0x1FF  # keep intermediate small
+        a = (a << 1) & 0x1FF
         if hi:
             a ^= AES_MODULUS
         b >>= 1
@@ -27,29 +28,25 @@ def gf_inverse(val):
     return 0
 
 # ============================
-# K-Matrices (fixed)
+# K-Matrices
 # ============================
 K_MATRICES = {
     "4": [
         0b00000111, 0b10000011, 0b11000001, 0b11100000,
         0b01110000, 0b00111000, 0b00011100, 0b00001111
     ],
-
     "44": [
         0b01110000, 0b01110101, 0b00111000, 0b10111010,
         0b00011100, 0b01011101, 0b00001111, 0b10101110
     ],
-
     "81": [
         0b10100001, 0b11010000, 0b01101000, 0b00110100,
         0b00011010, 0b00001101, 0b10000110, 0b01000011
     ],
-
     "111": [
-        0b11011100, 0b01101110, 0b00110111, 0b10011011,
+        0b11011100, 0b01101110, 0b00110177, 0b10011011,
         0b11001101, 0b11100110, 0b01110011, 0b10111001
     ],
-
     "128": [
         0b11111110, 0b01111111, 0b10111111, 0b11011111,
         0b11101111, 0b11110111, 0b11111011, 0b11111101
@@ -57,7 +54,7 @@ K_MATRICES = {
 }
 
 # ============================
-# S-box generator & utils
+# S-box generator
 # ============================
 def affine_transform(matrix_rows, byte_val, c=C_AES):
     res = 0
@@ -91,11 +88,49 @@ def decrypt_bytes(b, inv_sbox):
     return bytes([inv_sbox[x] for x in b])
 
 # ============================
+# --- ADDED ---
+# S-BOX STRENGTH TESTS
+# ============================
+
+def test_bijective(sbox):
+    return len(set(sbox)) == 256
+
+def avalanche_score(sbox):
+    total = 0
+    count = 0
+    for x in range(256):
+        for bit in range(8):
+            flipped = x ^ (1 << bit)
+            diff = sbox[x] ^ sbox[flipped]
+            total += bin(diff).count("1")
+            count += 8
+    return total / count  # ideal ≈ 0.5
+
+def differential_uniformity(sbox):
+    du = 256
+    for a in range(1, 256):
+        count = {}
+        for x in range(256):
+            y = sbox[x] ^ sbox[x ^ a]
+            count[y] = count.get(y, 0) + 1
+        du = min(du, max(count.values()))
+    return du
+
+def nonlinearity(sbox):
+    nl = []
+    for bit in range(8):
+        f = np.array([(sbox[x] >> bit) & 1 for x in range(256)], dtype=int)
+        walsh = np.zeros(256)
+        for w in range(256):
+            walsh[w] = sum([(-1)**(f[x] ^ (bin(x & w).count("1") % 2)) for x in range(256)])
+        nl.append((256 - max(abs(walsh))) // 2)
+    return min(nl)
+
+# ============================
 # Streamlit UI
 # ============================
 st.set_page_config(page_title="S-Box Substitution Demo", layout="wide")
 
-# simple styling
 st.markdown("""
 <style>
 .title { font-size:28px; font-weight:700; color:#2B6CB0; }
@@ -106,20 +141,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("<div class='title'>S-Box Substitution Cipher</div>", unsafe_allow_html=True)
-st.markdown("<div class='subtitle'>Pilih S-Box, enkripsi teks, lihat mapping 16×16</div>", unsafe_allow_html=True)
+st.markdown("<div class='subtitle'>Pilih S-Box, enkripsi teks, dan uji kekuatannya</div>", unsafe_allow_html=True)
 
-# pick S-box
 sbox_id = st.selectbox("Pilih S-box", ["4", "44", "81", "111", "128"], index=1)
 sbox = generate_sbox(sbox_id)
 inv_sbox = inverse_sbox(sbox)
 
 st.markdown(f"*S-box terpilih:* {sbox_id}")
 
-# input area
+# ============================
+# Encryption / Decryption
+# ============================
 st.markdown("### Input Teks")
 text = st.text_area("Masukkan teks yang mau dienkripsi:", "Hello, Alamsyah!", height=120)
 
-colE, colD = st.columns([1,1])
+colE, colD = st.columns([1, 1])
 
 with colE:
     if st.button("🔐 Encrypt"):
@@ -134,17 +170,12 @@ with colD:
         if "enc" not in st.session_state:
             st.warning("Belum ada ciphertext (klik Encrypt dulu).")
         else:
+            dec = decrypt_bytes(st.session_state["enc"], inv_sbox)
             try:
-                dec = decrypt_bytes(st.session_state["enc"], inv_sbox)
-                # try decode utf-8, fallback to latin-1 to avoid crash
-                try:
-                    st.session_state["dec_text"] = dec.decode("utf-8")
-                except:
-                    st.session_state["dec_text"] = dec.decode("latin-1", errors="replace")
-            except Exception as e:
-                st.error(f"Decrypt error: {e}")
+                st.session_state["dec_text"] = dec.decode("utf-8")
+            except:
+                st.session_state["dec_text"] = dec.decode("latin-1", errors="replace")
 
-# output
 if "enc" in st.session_state:
     st.markdown("### Ciphertext (Hex)")
     hex_out = " ".join(f"{b:02X}" for b in st.session_state["enc"])
@@ -154,14 +185,24 @@ if "dec_text" in st.session_state:
     st.markdown("### Hasil Decrypt")
     st.success(st.session_state["dec_text"])
 
-# verification small check
-st.markdown("### Verifikasi singkat (beberapa indeks)")
-v0 = sbox[0]
-v15 = sbox[15]
-v255 = sbox[255]
-st.write(f"Index 0 → {v0:02X}    |    Index 15 → {v15:02X}    |    Index 255 → {v255:02X}")
+# ============================
+# --- ADDED ---
+# TEST BUTTON
+# ============================
+st.markdown("### 🔍 Uji Kekuatan S-Box")
 
-# S-box table 16x16
+if st.button("Test S-Box Strength"):
+    st.write("**Bijective:**", "✔️ Ya" if test_bijective(sbox) else "❌ Tidak")
+    av = avalanche_score(sbox)
+    st.write(f"**Avalanche Effect:** {av*100:.2f}% (ideal 50%)")
+    du = differential_uniformity(sbox)
+    st.write(f"**Differential Uniformity:** {du} (AES = 4)")
+    nl = nonlinearity(sbox)
+    st.write(f"**Nonlinearity:** {nl} (AES = 112)")
+
+# ============================
+# S-BOX TABLE
+# ============================
 st.markdown("### S-Box Mapping (16×16)")
 table_html = "<table class='sbox-table'>"
 for r in range(16):
@@ -170,5 +211,4 @@ for r in range(16):
         table_html += f"<td>{sbox[r*16 + c]:02X}</td>"
     table_html += "</tr>"
 table_html += "</table>"
-
 st.markdown(table_html, unsafe_allow_html=True)
