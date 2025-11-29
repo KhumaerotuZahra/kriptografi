@@ -127,13 +127,6 @@ def calculate_sac(sbox):
     # return probability of each output bit flipping given single input bit flip
     return avg_sac / 8
 
-# --------------------------
-# Streamlit UI
-# --------------------------
-st.set_page_config(page_title="Kripto S-box Explorer", layout="centered")
-st.title("Kriptografi — S-box Substitution Demo")
-st.markdown("Pilih S-box dari paper Alamsyah dkk., input teks, lalu lihat ciphertext & metrik (NL, SAC).")
-
 with st.sidebar:
     st.header("Pengaturan")
     sbox_choice = st.selectbox("Pilih S-box", options=["4","44","81","111","128"], index=1)
@@ -145,7 +138,7 @@ SBOX = generate_sbox_from_K(sbox_choice)
 INV_SBOX = inverse_sbox(SBOX)
 
 st.markdown("### Input")
-user_text = st.text_area("Masukkan teks yang mau dienkripsi", value="Hello, Alamsyah!", height=120)
+user_text = st.text_area("Masukkan teks yang mau dienkripsi", value="Hello Word!", height=120)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -200,5 +193,4 @@ if st.button("Download S-box mapping (JSON)"):
     b = io.BytesIO(json.dumps(mapping).encode("utf-8"))
     st.download_button("Klik untuk download", data=b, file_name=f"sbox_{sbox_choice}.json", mime="application/json")
 
-st.markdown("---")
-st.caption("Catatan: S-box di-generate pake inverse GF(2^8) dan affine transform sesuai K-matrix di paper Alamsyah et al.")
+
